@@ -4,12 +4,14 @@ library(shinydashboard)
 library(ggplot2)
 library(tidyverse)
 library(rstan)
+library(rstanarm)
 library(ggmosaic)
 library(plotly)
 library(car)
 library(caret)
 library(vcd)
 library(shinyalert)
+library(bayesplot)
 
 
 setwd("C:\\Users\\ffras\\OneDrive\\Desktop\\School\\self\\App")
@@ -116,7 +118,7 @@ univariate_models <- function(response, predictors, data){
     dfs <- uni$df.null - uni$df.residual
     
     univariates$pvalue[i] <- signif(1-pchisq(deviance, df=dfs), 5)
-    univariates$AIC[i] <- signif(AIC(uni), 0)
+    univariates$AIC[i] <- signif(AIC(uni), 3)
 
     univariates$length[i] <- length(data[[predictors[i]]])
   }
@@ -188,8 +190,8 @@ gen_visuals <- function(responseName, varName, data){
 univariate_analysis <- function(responseName, varName, significance, data){
   response <- data[[responseName]]
   var <- data[[varName]]
-  print("VAR CLASS")
-  print(class(var))
+  #print("VAR CLASS")
+  #print(class(var))
   
   if (is.factor(var)){
     Table <- table(var, response)
@@ -294,166 +296,251 @@ stan_models <- function(Data, response, predictors, prior){
   return(Fit)
 }
 
+stanarm_models <- function(Data, response, predictors, prior, hype1, hype2){
+  for (pred in predictors) {
+    print(pred)
+    print(class(Data[[pred]]))
+  }
+  Xform <- paste("~", paste(predictors, collapse = "+"))
+  print(Xform)
+  print(prior)
+  theFormula <- glm(as.formula(paste(response, Xform)), data=Data, family=binomial(link="logit"))
+  X <- model.matrix(as.formula(Xform), data=Data)
+  betaMu <- coef(theFormula)
+  betaSig <- summary(theFormula)$coef[, "Std. Error"] * sqrt(nrow(Data))
+  
+  formula <- as.formula(paste(response, "~", paste(predictors, collapse = "+")))
+  
+  if(prior == "Informed"){
+    #thePrior = paste("normal(", betaMu, ",", betaSig, ")", sep = "")
+    model <- stan_glm(formula,
+                      data=Data,
+                      family = binomial(link= "logit"),
+                      prior = normal(betaMu[-1], betaSig[-1]),
+                      prior_intercept = normal(betaMu[1], betaSig[1]),
+                      seed = 2,
+                      cores = 3
+    )
+  } else if(prior == "Uninformed"){
+    #thePrior = paste("normal(", hype1, ",", hype2, ")", sep = "")
+    model <- stan_glm(formula,
+                      data=Data,
+                      family = binomial(link= "logit"),
+                      prior = normal(hype1, hype2),
+                      seed = 2,
+                      cores = 3
+    )
+  } else if(prior == "Uniform"){
+    #thePrior = paste("uniform(", hype1, ",", hype2, ")", sep = "")
+    model <- stan_glm(formula,
+                      data=Data,
+                      family = binomial(link= "logit"),
+                      prior = NULL,
+                      seed = 2,
+                      cores = 3
+    )
+  }
+  
+  formula <- as.formula(paste(response, "~", paste(predictors, collapse = "+")))
+  formula <- paste(response, "~", paste(predictors, collapse = "+"))
+  print(formula)
+  print("-------")
+  #model <- stan_glm(formula,
+  #                  data=Data,
+  #                  family = binomial(link= "logit"),
+  #                  prior = thePrior,
+  #                  seed = 2,
+  #                  cores = 3
+  #                  )
+  print("_________________________________________")
+  #summary(model)
+  return(model)
+}
+
 ui <- fluidPage(
   dashboardBody(
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")
     ),
     tabsetPanel(
-      tabPanel(
-        "Raw Data",
-        fluidRow(
-          div(style = "display: flex; flex-direction: row;",
-            column(4,
-                   radioButtons("response", "Select response variable", choices = "No repsonse selected")
-                 ),
-            column(4,
-                   textOutput("ResponseMessage")
-                   ),
-            column(4,
-                   radioButtons("ALLNA", "Remove all missing values of the dataset?", c("No", "Yes")),
-                   radioButtons("set_seed", "Would you like to set a seed?", c("No", "Yes")),
-                   conditionalPanel(
-                     condition = "input.set_seed == 'Yes'",
-                     numericInput("seed", label="Enter any Integer", value=0)
-                   )
-                  ),
-                                                                                    
-          )
-        ),
-        fluidRow(
-          column(4,
-                 "Enter a Dataset",
-                 fileInput("file", "Choose a CSV file"),
-                 tags$hr()
-          )
-        ),
-        fluidRow(
-          column(12, DTOutput("head"))
-        )
-      ),
-      tabPanel(
-        "Model Building",
-        fluidRow(
-          column(4,
-                 checkboxGroupInput("predictors", "Select predictors", choices = NULL),
-                 #radioButtons("response", "Select response variable", choices = "No repsonse selected"),
-                 textOutput("columns"),
-                 textOutput("variables")
+          tabPanel(
+            "Front Page",
+            fluidRow(
+              div(style = "display: flex; flex-direction: row;",
+                column(4,
+                       radioButtons("response", "Select response variable", choices = "No repsonse selected")
+                     ),
+                column(4,
+                       textOutput("ResponseMessage")
+                       ),
+                column(4,
+                       radioButtons("set_seed", "Would you like to set a seed?", c("No", "Yes")),
+                       conditionalPanel(
+                         condition = "input.set_seed == 'Yes'",
+                         numericInput("seed", label="Enter any Integer", value=0)
+                        )
+                      ),
+                                                                                        
+              )
+            ),
+            fluidRow(
+              column(4,
+                     "Enter a Dataset",
+                     fileInput("file", "Choose a CSV file"),
+                     tags$hr()
+              )
+            ),
+            fluidRow(
+              column(12, DTOutput("head"))
+            )
           ),
-          column(4, 
-                 fluidRow(
-                    h3("Options"),
-                    sliderInput("Sig", "Significance level", value=0.05, min=0.001, max=1),
-                    actionButton("askSig", "More Info"),
-                        
-                     radioButtons("removeNA", "Remove NA values from selected predictors?", c("No", "Yes")),
+          tabPanel(
+            "Analysis",
+          sidebarLayout(
+            sidebarPanel(
+              column(4, 
+                     checkboxGroupInput("predictors", "Select predictors", choices = NULL),
                      
-                    actionButton("askNA", "More Info"),
-                    radioButtons("Reduced", "Remove Categories with less than 'n' observations?", c("No", "Yes")),
-                    actionButton("askSmall", "More Info"),
-                    conditionalPanel(
-                       condition = "input.Reduced == 'Yes'",
-                       numericInput("N", "n: ", value=5, min=1, max=20)
-                   )
-                 ),
-                 fluidRow(
-                   h3("Univariate Summaries"),
-                   DTOutput("Summary"),
-                   actionButton("askUnivariate", "More Info")
-                 ),
-                 fluidRow(
-                   h3("Model Formula"),
-                   textOutput("ModelFormula"),
-                   actionButton("askFormula", "More Info")
-                 ),
-                 fluidRow(
-                   h3("Multivariate Summary"),
-                   dataTableOutput("Model"),
-                   actionButton("askModel", "More Info")
-                 ),
-                 fluidRow(
-                   h3("Model AIC"),
-                   textOutput("ModelAIC"),
-                   actionButton("askAIC", "More Info")
-                 )
+                     fluidRow(
+                       h3("Options"),
+                       sliderInput("Sig", "Significance level", value=0.05, min=0.001, max=1),
+                       actionButton("askSig", "More Info"),
+                       
+                       radioButtons("ALLNA", "Remove all missing values of the dataset?", c("No", "Yes")),
+                       actionButton("askNA", "More Info"),
+                       radioButtons("Reduced", "Remove Categories with less than 'n' observations?", c("No", "Yes")),
+                       actionButton("askSmall", "More Info"),
+                       conditionalPanel(
+                         condition = "input.Reduced == 'Yes'",
+                         numericInput("N", "n: ", value=5, min=1, max=20)
+                       )
+                     )
+              )
+            ),
+            mainPanel(
+            tabsetPanel(
+            tabPanel(
+            "Model Building",
+              fluidRow(
+                column(4, 
+                       fluidRow(
+                         h3("Univariate Summaries"),
+                         DTOutput("Summary"),
+                         actionButton("askUnivariate", "More Info")
+                       ),
+                       fluidRow(
+                         h3("Model Formula"),
+                         textOutput("ModelFormula"),
+                         actionButton("askFormula", "More Info")
+                       ),
+                       fluidRow(
+                         h3("Multivariate Summary"),
+                         dataTableOutput("Model"),
+                         actionButton("askModel", "More Info")
+                       ),
+                       fluidRow(
+                         h3("Model AIC"),
+                         textOutput("ModelAIC"),
+                         actionButton("askAIC", "More Info")
+                       )
+                ),
+                column(4,
+                       fluidRow(
+                         h3("Warnings"),
+                         htmlOutput("Warnings")
+                       ))
+                  )
           ),
-          column(4,
-                 fluidRow(
-                   h3("Warnings"),
-                   htmlOutput("Warnings")
-                 ))
-        )
-      ),
-      tabPanel(
-        "Visualization",
-        column(4,
-               fluidRow(
-                 actionButton("click2", "Generate Visualization")
-               ),
-               radioButtons("plotPredictor", "Select predictors", choices = "No repsonse selected"),
-        ),
-        column(4,
-               fluidRow(
-                 h3("Plot"),
-                 plotlyOutput("Plot", width="800px", height="600px")
-               ),
-               fluidRow(
-                 h3("Summary Statistics"),
-                 dataTableOutput("SumStats")
-               )
-        )
-      ),
-      tabPanel(
-        "Bayesian Inference",
-        column(4, 
-               fluidRow(
-                 actionButton("click", "Generate Bayesian Fit")
-               ),
-               fluidRow(
-                 radioButtons("Priors", "Please Select a Prior", choices = c("Informed", "Uninformed", "Uniform"))
-               ),
-               fluidRow(
-                 radioButtons("AnyOrForward", "Any Variables or Forward Selected ones?", choices = c("Any", "Selected"))
-               )
-        ),
-        column(4, 
-               fluidRow(
-                 textOutput("Message")
-               ),
-               fluidRow(
-                 dataTableOutput("BayesianFit")
-               ),
-               fluidRow(
-                 plotOutput("TracePlot", width="800px", height="600px")
-               )
-        )
-      ),
-      tabPanel(
-        "Predictions",
-        column(4, 
-               checkboxGroupInput("pred_predictors", "Select predictors", choices = NULL)
-               ),
-        column(4,
-                radioButtons("fit_forward", "Forward Selected variables or any variable?", choices=c("No", "Yes")),
-                sliderInput("cent", "How much data to train on? (%)", value=0.7, min=0.001, max=1),
-                fluidRow(
-                  h3("Accuracy"),
-                  textOutput("accuracy")
-                ),
-                fluidRow(
-                  h3("Sensitivity"),
-                  textOutput("sensitivity")
-                ),
-                fluidRow(
-                  h3("Specificity"),
-                  textOutput("specificity")
+          tabPanel(
+            "Visualization",
+            column(4,
+                   fluidRow(
+                     actionButton("click2", "Generate Visualization")
+                   ),
+                   radioButtons("plotPredictor", "Select predictors", choices = "No Variables Selected Selected"),
+            ),
+            column(4,
+                   fluidRow(
+                     h3("Plot"),
+                     plotlyOutput("Plot", width="800px", height="600px"),
+                     actionButton("askPlot", "More Info")
+                   ),
+                   fluidRow(
+                     h3("Summary Statistics"),
+                     dataTableOutput("SumStats"),
+                     actionButton("askSumStats", "More Info")
+                   )
+            )
+          ),
+          tabPanel(
+            "Bayesian Inference",
+            column(4, 
+                   fluidRow(
+                     actionButton("click", "Generate Bayesian Fit")
+                   ),
+                   fluidRow(
+                     radioButtons("Priors", "Please Select a Prior", choices = c("Informed", "Uninformed", "Uniform")),
+                     actionButton("askPrior", "More Info"),
+                     conditionalPanel(
+                       condition = "input.Priors == 'Uninformed'",
+                       numericInput("PriorMu", "Mean: ", value=0, min=-5, max=5),
+                       numericInput("PriorSig", "Standard Deviation: ", value = 1)
+                     )
+                   ),
+                   fluidRow(
+                     radioButtons("AnyOrForward", "Any Variables or Forward Selected ones?", choices = c("Any", "Selected")),
+                     actionButton("askWhichVars", "More Info")
+                   )
+            ),
+            column(4, 
+                   fluidRow(
+                     textOutput("Message")
+                   ),
+                   fluidRow(
+                     dataTableOutput("BayesianFit"),
+                     actionButton("askbayesian", "More Info")
+                   ),
+                   fluidRow(
+                     plotOutput("TracePlot", width="800px", height="600px"),
+                     actionButton("askTracePlot", "More Info")
+                   )
+            )
+          ),
+          tabPanel(
+            "Predictions",
+            column(4,
+                    radioButtons("fit_forward", "Forward Selected variables or any variable?", choices=c("No", "Yes")),
+                    sliderInput("cent", "How much data to train on? (%)", value=0.7, min=0.001, max=1),
+                    actionButton("askTrainProp", "More Info"),
+                    fluidRow(
+                      h3("Accuracy"),
+                      textOutput("accuracy"),
+                      actionButton("askAccuracy", "More Info")
+                    ),
+                    fluidRow(
+                      h3("Sensitivity"),
+                      textOutput("sensitivity"),
+                      actionButton("askSensitivity", "More Info")
+                    ),
+                    fluidRow(
+                      h3("Specificity"),
+                      textOutput("specificity"),actionButton("askAIC", "More Info"),
+                      actionButton("askSpecificity", "More Info")
+                    )
+                  )
                 )
               )
             )
           )
         )
       )
+    )
+  )
+  
+        
+    
+      
+  
   
 
 
@@ -507,31 +594,120 @@ server <- function(input, output, session){
                ", type="info")
   })
   
-  #observeEvent(input$ask)
+  observeEvent(input$askModel, {
+    shinyalert("Multivariate Model",
+               "This section provides in depth analysis on the multiple-predictor model generated from your selected variables. Each row is a variable in your model. For categorical variables, each category is its own variable. These category variables are defined as: 1 if the observation is that category, 0 otherwise. 
+               The first column is the estimate This is the change in mislabelling rate for a change in the variable. Officially, for a one unit increase in the predictor variable, there is an exp(coefficient) multiplicitive change in the mislabelling probability.
+               For example, if the coefficient of the variable price is 2.3, then for every dollar increase in the price of a product, the probability the product is mislabelled is multiplied by e^2.3 or 9.9. 
+               
+               The second column is the standard error. For statisticians: it is the emperical standard deviation of the estimate. For non-statisticians: It is the spread of the observations around the line of best fit (estimate). 
+               A lower standard error is desired, as it means observation values are close to the predicted value the estimate gives us. 
+               
+               The z-value is defined as the estimate divided by the standard error. Alone it does not mean a lot, but helps us calculate the p-value. 
+               
+               The p-value is the probabiity the found relationship was found at random. It is a popular test of significance, and the industry standard for significance is a p-value of < 0.05 (5%).
+               If a p-value is greater than .1, it is in almost all cases completely insignificant. 
+               It is calculated with the z-value. This is done by finding the area to the right of the z-value on the standard normal distribution (normal distribution with a mean of zero and a variance of 1). Simply put, a low p-value is found from a large z-value. 
+               
+               A good estimate has a small standard error proportional to the estimate, a large z-value and a very small p-value 
+               ", type="info")
+  })
   
-  #observeEvent(input$)
+  observeEvent(input$askAIC, {
+    shinyalert("Akaike Information Criterion (AIC)",
+               "
+               The Akaike Information Criterion (AIC) is a very useful and widely used model evaluator. While p-values only account for goodness of fit, the AIC also incorporates complexity of model. 
+               Simpler models are more desired, as analysis is simpler, and results are easier to interpret. There is no scale for the AIC, it is dependent on the dataset, the only important factor is the difference between AIC values between models.
+               A minimum AIC is desired. The forward variable selection method used to build the model often captures the model with the lowest AIC. 
+               ", type="info")
+  })
+  
+  observeEvent(input$askPlot, {
+    shinyalert("Variable Plots", 
+               "
+               There are two different plots that can be generated. The first is for categorical variables. The plot is called a mosaic plot, that shows the mislabelling proportions for each category. The width of each bar represents the proportional observations for each category.
+               
+               The second type is for continuous variables. This is called a sigmoid curve, and is the curve of best fit that is used for binomial response variables (success / failure response). The grey area at
+               ", type="info")
+  })
+  
+  observeEvent(input$askSumStats, {
+    shinyalert("Summary Statistics",
+               "
+               This table is a summary of inportant statistics for the categories of categorical variables. 
+               
+               An important statistic is the odds ratio / log(odds ratio) of a category. The odds ratio is the multiplicitive factor the odds has when that category is observed.
+               Essentially, categories with an odds ratio greater than one (or log(odds ratio) being greater than zero) increase the odds of a product being mislabelled, while an odds ratio of less than one has a decreased odds of the product being mislabelled.
+               
+               The mislabelling proportion is simply a ratio of mislabelled observations over total observations of a category.
+               the Standard error (SE) is a term of uncertainty in the mislabelling proportion, which is simply the proportion divided by the root of the observations. The more Observations, the more certain of an estimate and the less error.
+               
+               The confidence interval (CI) is a range of values that we are (in this case) 95% certain the true mislabelling proportion resides in. 
+               If the CI of two estimates overlap, we cannot conclude that these estimates are significantly different.
+               ", type="info")
+  })
+  
+  observeEvent(input$askPrior, {
+    shinyalert("Bayesian Prior Distributions",
+               "
+               In the Bayesian Inference Proccess, model estimates are considered random variables, in order to allow a model to explore a variety of values other than the linear regression estimates.
+               The use of this method in this case is to test the quality of the data and model. This is done is a few ways.
+               
+               One way to do this is to check how similar the model estimates are for different prior distributions. If they change a lot, then the model is easily influenced and is not strong.
+               ", type="info")
+  })
+  
+  observeEvent(input$askWhichVars, {
+    shinyalert("Which Variables?",
+               "
+               Do you want to include all selected variables, or only ones deemed significant by the forward variable selection process?
+               ", type="info")
+  })
+  
+  observeEvent(input$askbayesian, {
+    shinyalert("Bayesian Summary Table",
+               "
+               This table shows the Bayesian model and a variaty of evaluators of the model.
+               The first is the median estimate. This is the best estimate for the variable coefficients. There also includes the standard error and confidence interval. 
+               
+               There are some evaluators of the model, such as Rhat. This number should be very close to 1. any value greater than 1.05 shows the bayesian process did not work properly.
+               Secondly, the Number of effective samples (Neff) should be large. The larger it is, the more informed the final bayesian estimates are and the better the model converged.
+               ", type="info")
+  })
+  
+  observeEvent(input$askTracePlot, {
+    shinyalert("TracePlots",
+               "
+               The traceplot tracks the estimates of the coefficients as they iterate. They are an evaluation tool to see if the Bayesian infeerence worked well.
+               
+               ", type="info")
+  })
+  
+  observeEvent(input$, {
+    shinyalert("",
+               "
+               ", type="info")
+  })
   
   
   
   observe({
     predictorsList <- colnames(data())
     selectedPredictors <- isolate(input$predictors)
-    selectedPred_predictors <- isolate(input$pred_predictors)
     #responseList <- setdiff(predictorsList, selectedPredictors)
     responseList <- is.binomial(data())
     updateCheckboxGroupInput(session, "predictors", choices = predictorsList, selected = selectedPredictors)
-    updateCheckboxGroupInput(session, "pred_predictors", choices = predictorsList, selected = selectedPred_predictors)
-    
+     
     updateRadioButtons(session, "response", choices = responseList)
     
-    updateRadioButtons(session, "plotPredictor", choices = predictorsList)
+    updateRadioButtons(session, "plotPredictor", choices = selectedPredictors)
     
     if(input$set_seed == "Yes") set.seed(input$seed)
   })
   
   results <- reactive({
-    if(length(input$pred_predictors) > 0){
-      predict_obs(input$response, input$pred_predictors, data(), input$cent)
+    if(length(input$predictors) > 0){
+      predict_obs(input$response, input$predictors, data(), input$cent)
     }
   })
   
@@ -561,10 +737,6 @@ server <- function(input, output, session){
       glm <- forward_variable_selection(input$response, vars(), data(), input$Sig)
       vif(glm)
     }, warning = function(warning_condition){
-      #print("AYOOOO")
-      #Mb <- "Fitted probabilities of 0 or 1 occured. This means a certain category in the given variables give a 0% or 100% mislabelling rate, and it unwanted in probit regression."
-      #Mc <- "There is major separation. This means categories in one variable perfectly match with categories in a second"
-      
       if(grepl(warning_condition$message, "glm.fit: fitted probabilities numerically 0 or 1 occurred")){
         #print("ABC")
         warnings <<- c(warnings, Mb)
@@ -579,7 +751,7 @@ server <- function(input, output, session){
       #Mc <- "There is major separation. This means categories in one variable perfectly match with categories in a second"
       
       if(grepl(error_condition$message, "there are aliased coefficients in the model")){
-        print("HERE")
+        #print("HERE")
         warnings <<- c(warnings, Mc)
       }
     })
@@ -609,21 +781,22 @@ server <- function(input, output, session){
     # print(c(input$predictors, input$response))
     # a <- c("isMislabelled", "theYear")
     # print(a)
-    if(input$removeNA == "Yes"){
+    
+    if(input$ALLNA == "Yes"){ 
+      df <- na.omit(dataFull())
+    } else if(!is.na(input$response) && length(input$predictors) > 0){
       df <- dataFull()
       sub <- df[, c(input$response, input$predictors)]
       df <- df[complete.cases(sub), ]
     } else{
       df <- dataFull()
     }
-    
-    if(input$ALLNA == "Yes"){ 
-      dff <- na.omit(dataFull())
-    } else if(input$Reduced == "Yes"){
+    if(input$Reduced == "Yes"){
+      #print("JERE")
       for(pred in input$predictors){
-        print(pred)
-        print(class(df[[pred]]))
-        if(is.character(df[[pred]])){
+        #print(pred)
+        #print(class(df[[pred]]))
+        if(is.character(df[[pred]]) || is.factor(df[[pred]])){
           df <- df %>%
             group_by(across(all_of(pred))) %>%
             filter(n() >= input$N) %>%
@@ -650,26 +823,34 @@ server <- function(input, output, session){
     }
   })
   
-  pred_vars <- reactive({
-    if(input$fit_forward == "Yes"){
-      forward_variable_selection(input$response, input$pred_predictors, data(), input$Sig)
-    } else{
-      input$pred_predictors
-    }
-  })
+
   
   fitForward <- reactive({
-    if (length(vars()) > 0){
-      stan_models(data(), input$response, vars(), input$Priors)
+    if (length(vars()) > 0 && input$Priors == "Uniform"){
+      stanarm_models(data(), input$response, vars(), input$Priors, 0, 0)
+    } else if (length(vars()) > 0 && input$Priors == "Informed"){
+      stanarm_models(data(), input$response, vars(), input$Priors, input$betaMu, input$betaSig)
+    } else if (length(vars()) > 0 && input$Priors == "Uninformed"){
+      stanarm_models(data(), input$response, vars(), input$Priors, input$priorMu, input$priorSig)
+    } else {
+      character(0)
     }
   })
   
   fitAny <- reactive({
-    if (!is.null(input$response) && length(input$predictors) > 0) {
-      stan_models(data(), input$response, input$predictors, input$Priors)
+    print("=====")
+    print(length(input$predictors))
+    print(input$Priors)
+    if (length(input$predictors) > 0 && input$Priors == "Uniform"){
+      stanarm_models(data(), input$response, input$predictors, input$Priors, input$lowerbound, input$upperbound)
+    } else if (length(input$predictors) > 0 && input$Priors == "Informed"){
+      stanarm_models(data(), input$response, input$predictors, input$Priors, input$betaMu, input$betaSig)
+    } else if (length(input$predictors) > 0 && input$Priors == "Uninformed"){
+      stanarm_models(data(), input$response, input$predictors, input$Priors, input$priorMu, input$priorSig)
     } else {
       character(0)
     }
+    #print("HEHEHE")
   })
   
   output$ResponseMessage <- renderText(
@@ -728,9 +909,8 @@ server <- function(input, output, session){
       model <- glm(formula, data=data(), family=binomial(link="logit"))
 
 
-      paste("AIC: ", signif(AIC(model),3))
+      paste("AIC: ", signif(AIC(model)))
     }
-    
     
   })
   
@@ -764,18 +944,30 @@ server <- function(input, output, session){
   observeEvent(input$click, {
     output$BayesianFit <- renderDT({
       if(input$AnyOrForward == "Selected"){
-        summary(fitForward())$summary
+        fit <- fitForward()
       }else{
-        summary(fitAny())$summary
+        fit <- fitAny()
       }
+      #print(fit)
+      print(coef(fit))
+      print(fit$ses)
+      print(posterior_interval(fit, prob = 0.95))
+      print(summary(fit)[, "Rhat"])
+      dataTable <- cbind("Median" = round(coef(fit), 3), "SE" = round(fit$ses, 3),
+                         "CILB" = round(posterior_interval(fit, prob = 0.95)[,1], 3),
+                         "CIUB" = round(posterior_interval(fit, prob = 0.95)[,2], 3),
+                         "R-hat" = round(summary(fit)[, "Rhat"], 3),
+                         "Neff" = round(neff_ratio(as.array(fit)), 3))
+      dataTable
     })
     
-    output$TracePlot <- renderPlot({
-      if(input$AnyOrForward == "Selected"){
-        traceplot(fitForward())
-      } else{
-        traceplot(fitAny())
-      }
+      output$TracePlot <- renderPlot({
+        if(input$AnyOrForward == "Selected"){
+          posts <- as.array(fitForward())     
+        } else{
+          posts <- as.array(fitAny())
+        }
+        mcmc_trace(posts)
     })
   })
   
