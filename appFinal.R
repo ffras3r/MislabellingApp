@@ -1,6 +1,9 @@
 library(shiny)
 library(DT)
 library(shinydashboard)
+#module to define a sidebar and call multiple times
+#conditional panel
+library(fresh) #google fonts
 library(ggplot2)
 library(tidyverse)
 library(rstan)
@@ -343,21 +346,38 @@ stanarm_models <- function(Data, response, predictors, prior, hype1, hype2){
   
   formula <- as.formula(paste(response, "~", paste(predictors, collapse = "+")))
   formula <- paste(response, "~", paste(predictors, collapse = "+"))
-  print(formula)
-  print("-------")
-  #model <- stan_glm(formula,
-  #                  data=Data,
-  #                  family = binomial(link= "logit"),
-  #                  prior = thePrior,
-  #                  seed = 2,
-  #                  cores = 3
-  #                  )
-  print("_________________________________________")
+
   #summary(model)
   return(model)
 }
 
-ui <- fluidPage(
+ui <- dashboardPage(
+  
+  dashboardHeader(
+    
+  ),
+  dashboardSidebar(
+           uiOutput("RESPONSESELECTION"),
+            
+           uiOutput("PREDICTORSELECTION"),
+           
+           fluidRow(
+             h3("..     Options"),
+             sliderInput("Sig", "  Significance level", value=0.05, min=0.001, max=1),
+             actionButton("askSig", "  More Info"),
+             
+             radioButtons("ALLNA", "  Remove all missing values of the dataset?", c("No", "Yes")),
+             actionButton("askNA", " More Info"),
+             radioButtons("Reduced", "  Remove Categories with less than 'n' observations?", c("No", "Yes")),
+             actionButton("askSmall", "  More Info"),
+             conditionalPanel(
+               condition = "input.Reduced == 'Yes'",
+               numericInput("N", "  n: ", value=5, min=1, max=20)
+             )
+           )
+      
+  ),
+  
   dashboardBody(
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")
@@ -367,9 +387,6 @@ ui <- fluidPage(
             "Front Page",
             fluidRow(
               div(style = "display: flex; flex-direction: row;",
-                column(4,
-                       radioButtons("response", "Select response variable", choices = "No repsonse selected")
-                     ),
                 column(4,
                        textOutput("ResponseMessage")
                        ),
@@ -386,7 +403,8 @@ ui <- fluidPage(
             fluidRow(
               column(4,
                      "Enter a Dataset",
-                     fileInput("file", "Choose a CSV file"),
+                     fileInput("file", "Choose a CSV file",
+                               accept = ".csv"),
                      tags$hr()
               )
             ),
@@ -394,61 +412,20 @@ ui <- fluidPage(
               column(12, DTOutput("head"))
             )
           ),
+            
           tabPanel(
-            "Analysis",
-          sidebarLayout(
-            sidebarPanel(
-              column(4, 
-                     checkboxGroupInput("predictors", "Select predictors", choices = NULL),
-                     
-                     fluidRow(
-                       h3("Options"),
-                       sliderInput("Sig", "Significance level", value=0.05, min=0.001, max=1),
-                       actionButton("askSig", "More Info"),
-                       
-                       radioButtons("ALLNA", "Remove all missing values of the dataset?", c("No", "Yes")),
-                       actionButton("askNA", "More Info"),
-                       radioButtons("Reduced", "Remove Categories with less than 'n' observations?", c("No", "Yes")),
-                       actionButton("askSmall", "More Info"),
-                       conditionalPanel(
-                         condition = "input.Reduced == 'Yes'",
-                         numericInput("N", "n: ", value=5, min=1, max=20)
-                       )
-                     )
-              )
-            ),
-            mainPanel(
-            tabsetPanel(
-            tabPanel(
             "Model Building",
-              fluidRow(
-                column(4, 
-                       fluidRow(
-                         h3("Univariate Summaries"),
-                         DTOutput("Summary"),
-                         actionButton("askUnivariate", "More Info")
-                       ),
-                       fluidRow(
-                         h3("Model Formula"),
-                         textOutput("ModelFormula"),
-                         actionButton("askFormula", "More Info")
-                       ),
-                       fluidRow(
-                         h3("Multivariate Summary"),
-                         dataTableOutput("Model"),
-                         actionButton("askModel", "More Info")
-                       ),
-                       fluidRow(
-                         h3("Model AIC"),
-                         textOutput("ModelAIC"),
-                         actionButton("askAIC", "More Info")
-                       )
-                ),
+            column(4,
+                uiOutput("UNIVARIATE"),
+               
+                uiOutput("MULTIVARIATE")
+            ),
+
                 column(4,
                        fluidRow(
                          h3("Warnings"),
                          htmlOutput("Warnings")
-                       ))
+                       )
                   )
           ),
           tabPanel(
@@ -457,7 +434,7 @@ ui <- fluidPage(
                    fluidRow(
                      actionButton("click2", "Generate Visualization")
                    ),
-                   radioButtons("plotPredictor", "Select predictors", choices = "No Variables Selected Selected"),
+                   radioButtons("plotPredictor", "Select predictor", choices = "NULL"),
             ),
             column(4,
                    fluidRow(
@@ -496,6 +473,7 @@ ui <- fluidPage(
                    fluidRow(
                      textOutput("Message")
                    ),
+                   
                    fluidRow(
                      dataTableOutput("BayesianFit"),
                      actionButton("askbayesian", "More Info")
@@ -503,77 +481,136 @@ ui <- fluidPage(
                    fluidRow(
                      plotOutput("TracePlot", width="800px", height="600px"),
                      actionButton("askTracePlot", "More Info")
-                   )
-            )
-          ),
-          tabPanel(
-            "Predictions",
-            column(4,
-                    radioButtons("fit_forward", "Forward Selected variables or any variable?", choices=c("No", "Yes")),
-                    sliderInput("cent", "How much data to train on? (%)", value=0.7, min=0.001, max=1),
-                    actionButton("askTrainProp", "More Info"),
-                    fluidRow(
-                      h3("Accuracy"),
-                      textOutput("accuracy"),
-                      actionButton("askAccuracy", "More Info")
-                    ),
-                    fluidRow(
-                      h3("Sensitivity"),
-                      textOutput("sensitivity"),
-                      actionButton("askSensitivity", "More Info")
-                    ),
-                    fluidRow(
-                      h3("Specificity"),
-                      textOutput("specificity"),actionButton("askAIC", "More Info"),
-                      actionButton("askSpecificity", "More Info")
-                    )
-                  )
+                   ) 
                 )
               )
             )
-          )
-        )
-      )
-    )
-  )
-  
-        
-    
-      
-  
-  
+ )
+)
 
+  
+  #
+            # tabPanel(
+            #   "Predictions",
+            # column(4,
+            #         radioButtons("fit_forward", "Forward Selected variables or any variable?", choices=c("No", "Yes")),
+            #         sliderInput("cent", "How much data to train on? (%)", value=0.7, min=0.001, max=1),
+            #         actionButton("askTrainProp", "More Info"),
+            #         fluidRow(
+            #           h3("Accuracy"),
+            #           textOutput("accuracy"),
+            #           actionButton("askAccuracy", "More Info")
+            #         ),
+            #         fluidRow(
+            #           h3("Sensitivity"),
+            #           textOutput("sensitivity"),
+            #           actionButton("askSensitivity", "More Info")
+            #         ),
+            #         fluidRow(
+            #           h3("Specificity"),
+            #           textOutput("specificity"),actionButton("askAIC", "More Info"),
+            #           actionButton("askSpecificity", "More Info")
+            #         )
+            #       )
+            #     )
 
 server <- function(input, output, session){
+  observe({
+    predictorsList <- colnames(data())
+    selectedPredictors <- isolate(input$predictors)
+    selectedPlotPredictor <- isolate(input$plotPredictor)
+    #responseList <- setdiff(predictorsList, selectedPredictors)
+    responseList <- is.binomial(data())
+    updateCheckboxGroupInput(session, "predictors", choices = predictorsList, selected = selectedPredictors)
+    updateRadioButtons(session, "plotPredictor", choices = predictorsList)
+    
+    updateRadioButtons(session, "response", choices = responseList)
+    
+    #updateRadioButtons(session, "plotPredictor", choices = selectedPredictors)
+    
+    if(input$set_seed == "Yes") set.seed(input$seed)
+  })
+  
+  
+  output$RESPONSESELECTION <- renderUI({
+    if (nrow(dataFull()) > 0){
+        radioButtons("response", "Select response variable", choices = "No Responses Available")
+    } else {
+        NULL
+    }
+  })
+  
+  output$PREDICTORSELECTION <- renderUI({
+    if (nrow(dataFull()) > 0){
+      checkboxGroupInput("predictors", "Select predictors", choices = "No Predictors Available")
+    } else {
+      NULL
+    }
+  })
+  
+  output$UNIVARIATE <- renderUI({
+    if(length(input$predictors) > 0){
+      fluidRow(
+        h3("Univariate Summaries"),
+        DTOutput("Summary"),
+        actionButton("askUnivariate", "More Info")
+      )
+    }
+  })
+  
+  output$MULTIVARIATE <- renderUI({
+    if(length(vars()) > 0){
+      fluidRow(
+        h3("Model Formula"),
+        textOutput("ModelFormula"),
+        actionButton("askFormula", "More Info"),
+        h3("Multivariate Summary"),
+        dataTableOutput("Model"),
+        actionButton("askModel", "More Info"),
+        h3("Model AIC"),
+        textOutput("ModelAIC"),
+        actionButton("askAIC", "More Info")
+      )
+    }
+  })
+  
   observeEvent(input$askSig, {
-    shinyalert("Significance Level", 
-              "The P-value is a measurement of significance of a model, defined as the probability that the found relationship is found by chance. 
+    showModal(modalDialog(
+              title = "Significance Level", 
+              "
+               The P-value is a measurement of significance of a model, defined as the probability that the found relationship is found by chance. 
                In our model-building process, we use a cutoff to only include variables with a low enough p-value. 
                The standard, and reccomended p-value cutoff is 0.05 (5%).
-               ", type = "info")
+               "))
   })
   
   observeEvent(input$askNA, {
-    shinyalert("Remove Missing Values", 
-              "There cannot be missing values in the variables chosen, a model cannot be made with missing values.
-               It would be ideal to remove all missing values, but can reduce size of dataset. 
+    showModal(modalDialog(
+      title = "Remove Missing Values", 
+              "
+              There cannot be missing values in the variables chosen, a model cannot be made with missing values.
+              It would be ideal to remove all missing values, but can reduce size of dataset. 
               It is good practice to only remove missing values in variables under consideration.
-              ", type="info")
+              "))
   })
   
   observeEvent(input$askSmall, {
-    shinyalert("Remove Small Categories",
-               "Including small categories can create problems, like separation, where entire categories have one Mislabelling status.
+    showModal(modalDialog(
+      title = "Remove Small Categories",
+               "
+               Including small categories can create problems, like separation, where entire categories have one Mislabelling status.
                This is a violation of Linear Regression Assumptions and thus analysis is incorrect. 
                Another potential issue is multicollinearity: When an entire category has one predictor value, which is also a Linear Regression Assumption.
                Small categories have higher chances for these issues to occur.
                A reccomended starting value when dealing with these issues is around 3% of total observations.
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askUnivariate, {
-    shinyalert("Univariate Summary",
-               "The univariate summary reports each variable predicting mislabelling individually.
+    showModal(modalDialog(
+      title = "Univariate Summary",
+               "
+               The univariate summary reports each variable predicting mislabelling individually.
                It provides the p-value, a measure of significance. 
                The P-value is a measurement of significance of a model, defined as the probability that the found relationship is found by chance. 
                The standard, and reccomended p-value cutoff is 0.05 (5%).
@@ -582,21 +619,25 @@ server <- function(input, output, session){
                A simple model is desired. The scale of the AIC is not important, only the difference between models. A minimal AIC is desired
                
                The length is the number of observations used in the models.
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askFormula, {
-    shinyalert("Model Formula", 
-               "The Model Formula shows the response variable (in this case, mislabelled status), and the variables used to predict it. In this case, predictor variables are selected using forward variable selection.
+    showModal(modalDialog(
+      title = "Model Formula", 
+               "
+               The Model Formula shows the response variable (in this case, mislabelled status), and the variables used to predict it. In this case, predictor variables are selected using forward variable selection.
                Forward variable selection goes like this. One variable with the lowest AIC is chosen. This single-variable model is tested for significance. if its p-value is less than the cutoff, it is chosen.
                A second variable is chosen with the lowest AIC when predicting mislabelling state together. If this two-predictor model predicts mislabelling rate significantly better than the first, the second variable is chosen.
                This process of adding variables and checking if its addition is justified continues until no more variables are deemed significant.
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askModel, {
-    shinyalert("Multivariate Model",
-               "This section provides in depth analysis on the multiple-predictor model generated from your selected variables. Each row is a variable in your model. For categorical variables, each category is its own variable. These category variables are defined as: 1 if the observation is that category, 0 otherwise. 
+    showModal(modalDialog(
+      title = "Multivariate Model",
+               "
+               This section provides in depth analysis on the multiple-predictor model generated from your selected variables. Each row is a variable in your model. For categorical variables, each category is its own variable. These category variables are defined as: 1 if the observation is that category, 0 otherwise. 
                The first column is the estimate This is the change in mislabelling rate for a change in the variable. Officially, for a one unit increase in the predictor variable, there is an exp(coefficient) multiplicitive change in the mislabelling probability.
                For example, if the coefficient of the variable price is 2.3, then for every dollar increase in the price of a product, the probability the product is mislabelled is multiplied by e^2.3 or 9.9. 
                
@@ -610,29 +651,32 @@ server <- function(input, output, session){
                It is calculated with the z-value. This is done by finding the area to the right of the z-value on the standard normal distribution (normal distribution with a mean of zero and a variance of 1). Simply put, a low p-value is found from a large z-value. 
                
                A good estimate has a small standard error proportional to the estimate, a large z-value and a very small p-value 
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askAIC, {
-    shinyalert("Akaike Information Criterion (AIC)",
+    showModal(modalDialog(
+      title = "Akaike Information Criterion (AIC)",
                "
                The Akaike Information Criterion (AIC) is a very useful and widely used model evaluator. While p-values only account for goodness of fit, the AIC also incorporates complexity of model. 
                Simpler models are more desired, as analysis is simpler, and results are easier to interpret. There is no scale for the AIC, it is dependent on the dataset, the only important factor is the difference between AIC values between models.
                A minimum AIC is desired. The forward variable selection method used to build the model often captures the model with the lowest AIC. 
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askPlot, {
-    shinyalert("Variable Plots", 
+    showModal(modalDialog(
+      title = "Variable Plots", 
                "
                There are two different plots that can be generated. The first is for categorical variables. The plot is called a mosaic plot, that shows the mislabelling proportions for each category. The width of each bar represents the proportional observations for each category.
                
                The second type is for continuous variables. This is called a sigmoid curve, and is the curve of best fit that is used for binomial response variables (success / failure response). The grey area at
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askSumStats, {
-    shinyalert("Summary Statistics",
+    showModal(modalDialog(
+      title = "Summary Statistics",
                "
                This table is a summary of inportant statistics for the categories of categorical variables. 
                
@@ -644,71 +688,47 @@ server <- function(input, output, session){
                
                The confidence interval (CI) is a range of values that we are (in this case) 95% certain the true mislabelling proportion resides in. 
                If the CI of two estimates overlap, we cannot conclude that these estimates are significantly different.
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askPrior, {
-    shinyalert("Bayesian Prior Distributions",
+    showModal(modalDialog(
+      title = "Bayesian Prior Distributions",
                "
                In the Bayesian Inference Proccess, model estimates are considered random variables, in order to allow a model to explore a variety of values other than the linear regression estimates.
                The use of this method in this case is to test the quality of the data and model. This is done is a few ways.
                
                One way to do this is to check how similar the model estimates are for different prior distributions. If they change a lot, then the model is easily influenced and is not strong.
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askWhichVars, {
-    shinyalert("Which Variables?",
+    showModal(modalDialog(
+      title = "Which Variables?",
                "
                Do you want to include all selected variables, or only ones deemed significant by the forward variable selection process?
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askbayesian, {
-    shinyalert("Bayesian Summary Table",
+    showModal(modalDialog(
+      title = "Bayesian Summary Table",
                "
                This table shows the Bayesian model and a variaty of evaluators of the model.
                The first is the median estimate. This is the best estimate for the variable coefficients. There also includes the standard error and confidence interval. 
                
                There are some evaluators of the model, such as Rhat. This number should be very close to 1. any value greater than 1.05 shows the bayesian process did not work properly.
                Secondly, the Number of effective samples (Neff) should be large. The larger it is, the more informed the final bayesian estimates are and the better the model converged.
-               ", type="info")
+               "))
   })
   
   observeEvent(input$askTracePlot, {
-    shinyalert("TracePlots",
+    showModal(modalDialog(
+      title = "TracePlots",
                "
                The traceplot tracks the estimates of the coefficients as they iterate. They are an evaluation tool to see if the Bayesian infeerence worked well.
                
-               ", type="info")
-  })
-  
-  observeEvent(input$, {
-    shinyalert("",
-               "
-               ", type="info")
-  })
-  
-  
-  
-  observe({
-    predictorsList <- colnames(data())
-    selectedPredictors <- isolate(input$predictors)
-    #responseList <- setdiff(predictorsList, selectedPredictors)
-    responseList <- is.binomial(data())
-    updateCheckboxGroupInput(session, "predictors", choices = predictorsList, selected = selectedPredictors)
-     
-    updateRadioButtons(session, "response", choices = responseList)
-    
-    updateRadioButtons(session, "plotPredictor", choices = selectedPredictors)
-    
-    if(input$set_seed == "Yes") set.seed(input$seed)
-  })
-  
-  results <- reactive({
-    if(length(input$predictors) > 0){
-      predict_obs(input$response, input$predictors, data(), input$cent)
-    }
+               "))
   })
   
   Warnings <- reactive({
@@ -809,6 +829,7 @@ server <- function(input, output, session){
     }
     return(dff)
   })
+  
 
   vars <- reactive({
     if (!is.null(input$response) && length(input$predictors) > 0) {
@@ -822,6 +843,7 @@ server <- function(input, output, session){
       NULL
     }
   })
+  
   
 
   
@@ -838,7 +860,6 @@ server <- function(input, output, session){
   })
   
   fitAny <- reactive({
-    print("=====")
     print(length(input$predictors))
     print(input$Priors)
     if (length(input$predictors) > 0 && input$Priors == "Uniform"){
@@ -851,6 +872,12 @@ server <- function(input, output, session){
       character(0)
     }
     #print("HEHEHE")
+  })
+  
+  results <- reactive({
+    if(length(input$predictors) > 0){
+      predict_obs(input$response, input$predictors, data(), input$cent)
+    }
   })
   
   output$ResponseMessage <- renderText(
@@ -876,6 +903,7 @@ server <- function(input, output, session){
   })
   
   output$ModelFormula <- renderText({
+    #print(length(vars()))
     if(length(vars()) > 0){
       paste("Formula: ", input$response, "~", paste(vars(), collapse="+"))
     }
@@ -957,7 +985,7 @@ server <- function(input, output, session){
                          "CILB" = round(posterior_interval(fit, prob = 0.95)[,1], 3),
                          "CIUB" = round(posterior_interval(fit, prob = 0.95)[,2], 3),
                          "R-hat" = round(summary(fit)[, "Rhat"], 3),
-                         "Neff" = round(neff_ratio(as.array(fit)), 3))
+                        "Neff" = round(summary(fit)[, "n_eff"], 3))
       dataTable
     })
     
